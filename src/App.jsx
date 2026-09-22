@@ -11,6 +11,8 @@ function money(value) {
 }
 
 function formatTime(date) {
+  if (!date) return '--:--'
+
   return new Date(date).toLocaleTimeString('pt-BR', {
     hour: '2-digit',
     minute: '2-digit',
@@ -19,9 +21,11 @@ function formatTime(date) {
 
 function getDateKey(date) {
   const value = new Date(date)
+
   const year = value.getFullYear()
   const month = String(value.getMonth() + 1).padStart(2, '0')
   const day = String(value.getDate()).padStart(2, '0')
+
   return `${year}-${month}-${day}`
 }
 
@@ -31,7 +35,9 @@ function today() {
 
 function formatDate(date) {
   if (!date) return ''
+
   const [year, month, day] = date.split('-')
+
   return `${day}/${month}/${year}`
 }
 
@@ -111,9 +117,12 @@ function VehiclePhoto({ photo, className = '' }) {
     }
 
     const objectUrl = URL.createObjectURL(photo)
+
     setUrl(objectUrl)
 
-    return () => URL.revokeObjectURL(objectUrl)
+    return () => {
+      URL.revokeObjectURL(objectUrl)
+    }
   }, [photo])
 
   if (!url) return null
@@ -137,7 +146,9 @@ export default function App() {
 
   const [tab, setTab] = useState('vehicles')
 
+  const [vehicleDate, setVehicleDate] = useState(today())
   const [reportDate, setReportDate] = useState(today())
+
   const [copied, setCopied] = useState(false)
 
   const [editingVehicle, setEditingVehicle] = useState(null)
@@ -153,7 +164,9 @@ export default function App() {
   async function loadVehicles() {
     const data = await getVehicles()
 
-    data.sort((a, b) => new Date(b.entry) - new Date(a.entry))
+    data.sort((a, b) => {
+      return new Date(b.entry) - new Date(a.entry)
+    })
 
     setVehicles(data)
   }
@@ -163,9 +176,12 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (!cameraOpen || !cameraStream || !videoRef.current) return
+    if (!cameraOpen) return
+    if (!cameraStream) return
+    if (!videoRef.current) return
 
     videoRef.current.srcObject = cameraStream
+
     videoRef.current.play().catch(() => {})
   }, [cameraOpen, cameraStream])
 
@@ -186,9 +202,7 @@ export default function App() {
 
   async function openCamera(target = 'new') {
     if (!navigator.mediaDevices?.getUserMedia) {
-      alert(
-        'A câmera avançada não está disponível neste navegador. Tente usar HTTPS ou o botão de selecionar foto.',
-      )
+      alert('A câmera não está disponível neste navegador.')
       return
     }
 
@@ -234,7 +248,9 @@ export default function App() {
   function takePhoto() {
     const video = videoRef.current
 
-    if (!video || !video.videoWidth || !video.videoHeight) return
+    if (!video) return
+    if (!video.videoWidth) return
+    if (!video.videoHeight) return
 
     const canvas = document.createElement('canvas')
 
@@ -293,6 +309,8 @@ export default function App() {
     setModel('')
     setColor('')
     setPhoto(null)
+
+    setVehicleDate(today())
 
     await loadVehicles()
 
@@ -361,23 +379,34 @@ export default function App() {
 
     const updatedVehicle = {
       id: editingVehicle.id,
-      plate: editingVehicle.plate
-        .trim()
-        .toUpperCase(),
-      model: editingVehicle.model
-        ?.trim()
-        .toUpperCase() || '',
-      color: editingVehicle.color
-        ?.trim()
-        .toUpperCase() || '',
+
+      plate:
+        editingVehicle.plate
+          ?.trim()
+          .toUpperCase() || '',
+
+      model:
+        editingVehicle.model
+          ?.trim()
+          .toUpperCase() || '',
+
+      color:
+        editingVehicle.color
+          ?.trim()
+          .toUpperCase() || '',
+
       photo: editingVehicle.photo || null,
+
       entry: entryDate.toISOString(),
+
       exit: exitDate
         ? exitDate.toISOString()
         : null,
     }
 
     await saveVehicle(updatedVehicle)
+
+    setVehicleDate(getDateKey(updatedVehicle.entry))
 
     cancelEditing()
 
@@ -396,9 +425,23 @@ export default function App() {
     await loadVehicles()
   }
 
+  const filteredVehicles = useMemo(() => {
+    return vehicles.filter(vehicle => {
+      return getDateKey(vehicle.entry) === vehicleDate
+    })
+  }, [vehicles, vehicleDate])
+
   const parkedVehicles = useMemo(() => {
-    return vehicles.filter(vehicle => !vehicle.exit)
-  }, [vehicles])
+    return filteredVehicles.filter(vehicle => {
+      return !vehicle.exit
+    })
+  }, [filteredVehicles])
+
+  const finishedVehicles = useMemo(() => {
+    return filteredVehicles.filter(vehicle => {
+      return vehicle.exit
+    })
+  }, [filteredVehicles])
 
   const reportVehicles = useMemo(() => {
     return vehicles.filter(vehicle => {
@@ -468,7 +511,6 @@ export default function App() {
       alert(
         'Não existem veículos finalizados nesta data.',
       )
-
       return
     }
 
@@ -563,14 +605,15 @@ export default function App() {
 
               <input
                 value={plate}
-                onChange={event =>
+                maxLength={8}
+                autoComplete="off"
+                placeholder="ABC1D23"
+                onChange={event => {
                   setPlate(
                     event.target.value.toUpperCase(),
                   )
-                }
-                placeholder="ABC1D23"
-                autoComplete="off"
-                className="w-full rounded-xl border border-slate-300 bg-white p-4 text-lg font-semibold uppercase outline-none"
+                }}
+                className="w-full rounded-xl border border-slate-300 bg-white p-4 text-lg font-bold uppercase outline-none focus:border-slate-950"
               />
             </div>
 
@@ -581,14 +624,14 @@ export default function App() {
 
               <input
                 value={model}
-                onChange={event =>
+                autoComplete="off"
+                placeholder="CIVIC"
+                onChange={event => {
                   setModel(
                     event.target.value.toUpperCase(),
                   )
-                }
-                placeholder="CIVIC"
-                autoComplete="off"
-                className="w-full rounded-xl border border-slate-300 bg-white p-4 uppercase outline-none"
+                }}
+                className="w-full rounded-xl border border-slate-300 bg-white p-4 uppercase outline-none focus:border-slate-950"
               />
             </div>
 
@@ -599,21 +642,31 @@ export default function App() {
 
               <input
                 value={color}
-                onChange={event =>
+                autoComplete="off"
+                placeholder="PRETO"
+                onChange={event => {
                   setColor(
                     event.target.value.toUpperCase(),
                   )
-                }
-                placeholder="PRETO"
-                autoComplete="off"
-                className="w-full rounded-xl border border-slate-300 bg-white p-4 uppercase outline-none"
+                }}
+                className="w-full rounded-xl border border-slate-300 bg-white p-4 uppercase outline-none focus:border-slate-950"
               />
+            </div>
+
+            <div className="rounded-xl bg-white p-4 shadow-sm">
+              <div className="text-xs text-slate-500">
+                Horário de entrada
+              </div>
+
+              <div className="mt-1 font-bold">
+                Será registrado automaticamente
+              </div>
             </div>
 
             <button
               type="button"
               onClick={registerEntry}
-              className="w-full rounded-xl bg-green-600 p-4 font-bold text-white"
+              className="w-full rounded-xl bg-green-600 p-4 font-bold text-white active:scale-[0.99]"
             >
               Registrar entrada agora
             </button>
@@ -633,18 +686,93 @@ export default function App() {
                 </p>
               </div>
 
-              <div className="rounded-full bg-slate-950 px-3 py-1 text-sm font-bold text-white">
+              <div className="rounded-full bg-green-600 px-3 py-1 text-sm font-bold text-white">
                 {parkedVehicles.length}
               </div>
             </div>
 
-            {vehicles.length === 0 && (
-              <div className="rounded-2xl bg-white p-8 text-center">
-                Nenhum veículo registrado.
+            <div className="rounded-2xl bg-white p-4 shadow-sm">
+              <label className="mb-2 block text-sm font-semibold">
+                Filtrar por data
+              </label>
+
+              <div className="flex gap-2">
+                <input
+                  type="date"
+                  value={vehicleDate}
+                  onChange={event => {
+                    setVehicleDate(
+                      event.target.value,
+                    )
+                  }}
+                  className="min-w-0 flex-1 rounded-xl border border-slate-300 p-4 outline-none focus:border-slate-950"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVehicleDate(today())
+                  }}
+                  className="rounded-xl bg-slate-950 px-4 font-bold text-white"
+                >
+                  Hoje
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <div className="rounded-xl bg-white p-3 text-center shadow-sm">
+                <div className="text-xs text-slate-500">
+                  Total
+                </div>
+
+                <div className="mt-1 text-xl font-bold">
+                  {filteredVehicles.length}
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-white p-3 text-center shadow-sm">
+                <div className="text-xs text-slate-500">
+                  Estacionados
+                </div>
+
+                <div className="mt-1 text-xl font-bold text-green-600">
+                  {parkedVehicles.length}
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-white p-3 text-center shadow-sm">
+                <div className="text-xs text-slate-500">
+                  Finalizados
+                </div>
+
+                <div className="mt-1 text-xl font-bold">
+                  {finishedVehicles.length}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-slate-200 px-4 py-3 text-sm">
+              Registros de{' '}
+              <strong>
+                {formatDate(vehicleDate)}
+              </strong>
+            </div>
+
+            {filteredVehicles.length === 0 && (
+              <div className="rounded-2xl bg-white p-8 text-center shadow-sm">
+                <p className="font-bold">
+                  Nenhum veículo nesta data
+                </p>
+
+                <p className="mt-1 text-sm text-slate-500">
+                  Não existem registros em{' '}
+                  {formatDate(vehicleDate)}.
+                </p>
               </div>
             )}
 
-            {vehicles.map(vehicle => {
+            {filteredVehicles.map(vehicle => {
               const calculation = calculate(
                 vehicle.entry,
                 vehicle.exit,
@@ -663,24 +791,25 @@ export default function App() {
                   )}
 
                   <div className="space-y-4 p-4">
-                    <div className="flex justify-between gap-3">
+                    <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="text-xl font-bold">
                           {vehicle.plate}
                         </div>
 
-                        <div className="text-sm text-slate-500">
+                        <div className="mt-1 text-sm text-slate-500">
                           {[
                             vehicle.model,
                             vehicle.color,
                           ]
                             .filter(Boolean)
-                            .join(' • ')}
+                            .join(' • ') ||
+                            'SEM DESCRIÇÃO'}
                         </div>
                       </div>
 
                       {vehicle.exit ? (
-                        <span className="h-fit rounded-full bg-slate-200 px-3 py-1 text-xs font-bold">
+                        <span className="h-fit rounded-full bg-slate-200 px-3 py-1 text-xs font-bold text-slate-700">
                           FINALIZADO
                         </span>
                       ) : (
@@ -696,9 +825,11 @@ export default function App() {
                           Entrada
                         </div>
 
-                        <strong>
-                          {formatTime(vehicle.entry)}
-                        </strong>
+                        <div className="mt-1 font-bold">
+                          {formatTime(
+                            vehicle.entry,
+                          )}
+                        </div>
                       </div>
 
                       <div className="rounded-xl bg-slate-100 p-3">
@@ -706,58 +837,63 @@ export default function App() {
                           Saída
                         </div>
 
-                        <strong>
+                        <div className="mt-1 font-bold">
                           {vehicle.exit
-                            ? formatTime(vehicle.exit)
+                            ? formatTime(
+                                vehicle.exit,
+                              )
                             : '--:--'}
-                        </strong>
+                        </div>
                       </div>
                     </div>
 
-                    {vehicle.exit && calculation && (
-                      <div className="space-y-2 border-t pt-4">
-                        <div className="flex justify-between">
-                          <span>
-                            Permanência
-                          </span>
+                    {vehicle.exit &&
+                      calculation && (
+                        <div className="space-y-2 border-t border-slate-200 pt-4">
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">
+                              Permanência
+                            </span>
 
-                          <strong>
-                            {calculation.duration}
-                          </strong>
+                            <strong>
+                              {
+                                calculation.duration
+                              }
+                            </strong>
+                          </div>
+
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">
+                              Proporcional
+                            </span>
+
+                            <strong>
+                              {money(
+                                calculation.proportional,
+                              )}
+                            </strong>
+                          </div>
+
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">
+                              Hora iniciada
+                            </span>
+
+                            <strong>
+                              {money(
+                                calculation.startedHour,
+                              )}
+                            </strong>
+                          </div>
                         </div>
-
-                        <div className="flex justify-between">
-                          <span>
-                            Proporcional
-                          </span>
-
-                          <strong>
-                            {money(
-                              calculation.proportional,
-                            )}
-                          </strong>
-                        </div>
-
-                        <div className="flex justify-between">
-                          <span>
-                            Hora iniciada
-                          </span>
-
-                          <strong>
-                            {money(
-                              calculation.startedHour,
-                            )}
-                          </strong>
-                        </div>
-                      </div>
-                    )}
+                      )}
 
                     {!vehicle.exit && (
                       <button
                         type="button"
-                        onClick={() =>
+                        onClick={() => {
                           registerExit(vehicle)
-                        }
+                        }}
                         className="w-full rounded-xl bg-green-600 p-4 font-bold text-white"
                       >
                         Registrar saída agora
@@ -766,9 +902,9 @@ export default function App() {
 
                     <button
                       type="button"
-                      onClick={() =>
+                      onClick={() => {
                         startEditing(vehicle)
-                      }
+                      }}
                       className="w-full rounded-xl bg-blue-600 p-3 font-bold text-white"
                     >
                       Editar veículo
@@ -776,9 +912,11 @@ export default function App() {
 
                     <button
                       type="button"
-                      onClick={() =>
-                        removeVehicle(vehicle.id)
-                      }
+                      onClick={() => {
+                        removeVehicle(
+                          vehicle.id,
+                        )
+                      }}
                       className="w-full rounded-xl bg-slate-100 p-3 font-semibold text-slate-600"
                     >
                       Excluir
@@ -798,38 +936,56 @@ export default function App() {
               </h2>
 
               <p className="text-sm text-slate-500">
-                Selecione a data.
+                Consulte os veículos por data.
               </p>
             </div>
 
-            <div className="rounded-2xl bg-white p-4">
-              <input
-                type="date"
-                value={reportDate}
-                onChange={event =>
-                  setReportDate(event.target.value)
-                }
-                className="w-full rounded-xl border border-slate-300 p-4"
-              />
+            <div className="rounded-2xl bg-white p-4 shadow-sm">
+              <label className="mb-2 block text-sm font-semibold">
+                Data
+              </label>
+
+              <div className="flex gap-2">
+                <input
+                  type="date"
+                  value={reportDate}
+                  onChange={event => {
+                    setReportDate(
+                      event.target.value,
+                    )
+                  }}
+                  className="min-w-0 flex-1 rounded-xl border border-slate-300 p-4 outline-none"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReportDate(today())
+                  }}
+                  className="rounded-xl bg-slate-950 px-4 font-bold text-white"
+                >
+                  Hoje
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-2xl bg-white p-4">
+              <div className="rounded-2xl bg-white p-4 shadow-sm">
                 <div className="text-xs text-slate-500">
                   Veículos
                 </div>
 
-                <div className="text-2xl font-bold">
+                <div className="mt-1 text-2xl font-bold">
                   {reportVehicles.length}
                 </div>
               </div>
 
-              <div className="rounded-2xl bg-white p-4">
+              <div className="rounded-2xl bg-white p-4 shadow-sm">
                 <div className="text-xs text-slate-500">
-                  Tempo
+                  Tempo total
                 </div>
 
-                <div className="text-2xl font-bold">
+                <div className="mt-1 text-2xl font-bold">
                   {formatTotalDuration(
                     totals.minutes,
                   )}
@@ -837,32 +993,50 @@ export default function App() {
               </div>
             </div>
 
-            <div className="rounded-2xl bg-white p-4">
-              <div className="flex justify-between py-2">
-                <span>
+            <div className="rounded-2xl bg-white p-4 shadow-sm">
+              <div className="flex justify-between border-b border-slate-100 py-3">
+                <span className="text-slate-500">
                   Proporcional
                 </span>
 
                 <strong>
-                  {money(totals.proportional)}
+                  {money(
+                    totals.proportional,
+                  )}
                 </strong>
               </div>
 
-              <div className="flex justify-between py-2">
-                <span>
+              <div className="flex justify-between py-3">
+                <span className="text-slate-500">
                   Hora iniciada
                 </span>
 
                 <strong>
-                  {money(totals.startedHour)}
+                  {money(
+                    totals.startedHour,
+                  )}
                 </strong>
               </div>
             </div>
 
+            {reportVehicles.length === 0 && (
+              <div className="rounded-2xl bg-white p-8 text-center shadow-sm">
+                <p className="font-bold">
+                  Nenhum registro
+                </p>
+
+                <p className="mt-1 text-sm text-slate-500">
+                  Não existem veículos
+                  finalizados em{' '}
+                  {formatDate(reportDate)}.
+                </p>
+              </div>
+            )}
+
             {reportVehicles.length > 0 && (
               <>
                 <div className="rounded-2xl bg-slate-950 p-4 text-white">
-                  <pre className="whitespace-pre-wrap break-words font-sans text-sm">
+                  <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6">
                     {generateReport()}
                   </pre>
                 </div>
@@ -873,7 +1047,7 @@ export default function App() {
                   className="w-full rounded-xl bg-slate-950 p-4 font-bold text-white"
                 >
                   {copied
-                    ? 'Relatório copiado'
+                    ? 'Relatório copiado!'
                     : 'Copiar relatório'}
                 </button>
               </>
@@ -882,36 +1056,45 @@ export default function App() {
         )}
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 z-40 border-t bg-white">
+      <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-slate-200 bg-white">
         <div className="mx-auto grid max-w-md grid-cols-3">
           <button
-            onClick={() => setTab('entry')}
+            type="button"
+            onClick={() => {
+              setTab('entry')
+            }}
             className={`p-4 text-sm font-bold ${
               tab === 'entry'
                 ? 'bg-slate-950 text-white'
-                : ''
+                : 'text-slate-600'
             }`}
           >
             Entrada
           </button>
 
           <button
-            onClick={() => setTab('vehicles')}
+            type="button"
+            onClick={() => {
+              setTab('vehicles')
+            }}
             className={`p-4 text-sm font-bold ${
               tab === 'vehicles'
                 ? 'bg-slate-950 text-white'
-                : ''
+                : 'text-slate-600'
             }`}
           >
             Veículos
           </button>
 
           <button
-            onClick={() => setTab('report')}
+            type="button"
+            onClick={() => {
+              setTab('report')
+            }}
             className={`p-4 text-sm font-bold ${
               tab === 'report'
                 ? 'bg-slate-950 text-white'
-                : ''
+                : 'text-slate-600'
             }`}
           >
             Relatórios
@@ -928,6 +1111,7 @@ export default function App() {
               </h2>
 
               <button
+                type="button"
                 onClick={cancelEditing}
                 className="rounded-lg bg-slate-200 px-4 py-2 font-semibold"
               >
@@ -937,14 +1121,18 @@ export default function App() {
 
             {editingVehicle.photo && (
               <VehiclePhoto
-                photo={editingVehicle.photo}
+                photo={
+                  editingVehicle.photo
+                }
                 className="h-56 w-full rounded-2xl object-cover"
               />
             )}
 
             <button
               type="button"
-              onClick={() => openCamera('edit')}
+              onClick={() => {
+                openCamera('edit')
+              }}
               className="w-full rounded-xl bg-slate-950 p-4 font-bold text-white"
             >
               Tirar nova foto
@@ -963,10 +1151,12 @@ export default function App() {
 
                   if (!selected) return
 
-                  setEditingVehicle(current => ({
-                    ...current,
-                    photo: selected,
-                  }))
+                  setEditingVehicle(
+                    current => ({
+                      ...current,
+                      photo: selected,
+                    }),
+                  )
                 }}
               />
             </label>
@@ -974,12 +1164,14 @@ export default function App() {
             {editingVehicle.photo && (
               <button
                 type="button"
-                onClick={() =>
-                  setEditingVehicle(current => ({
-                    ...current,
-                    photo: null,
-                  }))
-                }
+                onClick={() => {
+                  setEditingVehicle(
+                    current => ({
+                      ...current,
+                      photo: null,
+                    }),
+                  )
+                }}
                 className="w-full rounded-xl bg-slate-200 p-3 font-semibold"
               >
                 Remover foto
@@ -992,15 +1184,21 @@ export default function App() {
               </label>
 
               <input
-                value={editingVehicle.plate || ''}
-                onChange={event =>
-                  setEditingVehicle(current => ({
-                    ...current,
-                    plate:
-                      event.target.value.toUpperCase(),
-                  }))
+                value={
+                  editingVehicle.plate ||
+                  ''
                 }
-                className="w-full rounded-xl border bg-white p-4 uppercase"
+                onChange={event => {
+                  setEditingVehicle(
+                    current => ({
+                      ...current,
+
+                      plate:
+                        event.target.value.toUpperCase(),
+                    }),
+                  )
+                }}
+                className="w-full rounded-xl border border-slate-300 bg-white p-4 uppercase outline-none"
               />
             </div>
 
@@ -1010,15 +1208,21 @@ export default function App() {
               </label>
 
               <input
-                value={editingVehicle.model || ''}
-                onChange={event =>
-                  setEditingVehicle(current => ({
-                    ...current,
-                    model:
-                      event.target.value.toUpperCase(),
-                  }))
+                value={
+                  editingVehicle.model ||
+                  ''
                 }
-                className="w-full rounded-xl border bg-white p-4 uppercase"
+                onChange={event => {
+                  setEditingVehicle(
+                    current => ({
+                      ...current,
+
+                      model:
+                        event.target.value.toUpperCase(),
+                    }),
+                  )
+                }}
+                className="w-full rounded-xl border border-slate-300 bg-white p-4 uppercase outline-none"
               />
             </div>
 
@@ -1028,15 +1232,21 @@ export default function App() {
               </label>
 
               <input
-                value={editingVehicle.color || ''}
-                onChange={event =>
-                  setEditingVehicle(current => ({
-                    ...current,
-                    color:
-                      event.target.value.toUpperCase(),
-                  }))
+                value={
+                  editingVehicle.color ||
+                  ''
                 }
-                className="w-full rounded-xl border bg-white p-4 uppercase"
+                onChange={event => {
+                  setEditingVehicle(
+                    current => ({
+                      ...current,
+
+                      color:
+                        event.target.value.toUpperCase(),
+                    }),
+                  )
+                }}
+                className="w-full rounded-xl border border-slate-300 bg-white p-4 uppercase outline-none"
               />
             </div>
 
@@ -1048,10 +1258,12 @@ export default function App() {
               <input
                 type="datetime-local"
                 value={editEntry}
-                onChange={event =>
-                  setEditEntry(event.target.value)
-                }
-                className="w-full rounded-xl border bg-white p-4"
+                onChange={event => {
+                  setEditEntry(
+                    event.target.value,
+                  )
+                }}
+                className="w-full rounded-xl border border-slate-300 bg-white p-4 outline-none"
               />
             </div>
 
@@ -1063,71 +1275,83 @@ export default function App() {
               <input
                 type="datetime-local"
                 value={editExit}
-                onChange={event =>
-                  setEditExit(event.target.value)
-                }
-                className="w-full rounded-xl border bg-white p-4"
+                onChange={event => {
+                  setEditExit(
+                    event.target.value,
+                  )
+                }}
+                className="w-full rounded-xl border border-slate-300 bg-white p-4 outline-none"
               />
 
               <button
                 type="button"
-                onClick={() => setEditExit('')}
+                onClick={() => {
+                  setEditExit('')
+                }}
                 className="mt-2 w-full rounded-xl bg-slate-200 p-3 font-semibold"
               >
                 Remover horário de saída
               </button>
             </div>
 
-            {editEntry && editExit && (
-              <div className="rounded-2xl bg-white p-4">
-                {(() => {
-                  const calculation = calculate(
-                    new Date(editEntry).toISOString(),
-                    new Date(editExit).toISOString(),
+            {editEntry &&
+              editExit &&
+              (() => {
+                const calculation =
+                  calculate(
+                    new Date(
+                      editEntry,
+                    ).toISOString(),
+
+                    new Date(
+                      editExit,
+                    ).toISOString(),
                   )
 
-                  if (!calculation) return null
+                if (!calculation) {
+                  return null
+                }
 
-                  return (
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span>
-                          Permanência
-                        </span>
+                return (
+                  <div className="space-y-2 rounded-2xl bg-white p-4">
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">
+                        Permanência
+                      </span>
 
-                        <strong>
-                          {calculation.duration}
-                        </strong>
-                      </div>
-
-                      <div className="flex justify-between">
-                        <span>
-                          Proporcional
-                        </span>
-
-                        <strong>
-                          {money(
-                            calculation.proportional,
-                          )}
-                        </strong>
-                      </div>
-
-                      <div className="flex justify-between">
-                        <span>
-                          Hora iniciada
-                        </span>
-
-                        <strong>
-                          {money(
-                            calculation.startedHour,
-                          )}
-                        </strong>
-                      </div>
+                      <strong>
+                        {
+                          calculation.duration
+                        }
+                      </strong>
                     </div>
-                  )
-                })()}
-              </div>
-            )}
+
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">
+                        Proporcional
+                      </span>
+
+                      <strong>
+                        {money(
+                          calculation.proportional,
+                        )}
+                      </strong>
+                    </div>
+
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">
+                        Hora iniciada
+                      </span>
+
+                      <strong>
+                        {money(
+                          calculation.startedHour,
+                        )}
+                      </strong>
+                    </div>
+                  </div>
+                )
+              })()}
 
             <button
               type="button"
@@ -1142,7 +1366,7 @@ export default function App() {
 
       {cameraOpen && (
         <div className="fixed inset-0 z-[100] flex flex-col bg-black">
-          <div className="flex-1">
+          <div className="min-h-0 flex-1">
             <video
               ref={videoRef}
               autoPlay
