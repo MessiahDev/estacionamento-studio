@@ -1,73 +1,393 @@
-const DB_NAME = 'parking-db'
-const STORE_NAME = 'vehicles'
-const DB_VERSION = 1
+import { neon } from './neon'
 
-function openDB() {
+const PHOTO_DB = 'parking-photos'
+const PHOTO_STORE = 'photos'
+const PHOTO_VERSION = 1
+
+function openPhotoDB() {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION)
+    const request = indexedDB.open(
+      PHOTO_DB,
+      PHOTO_VERSION,
+    )
 
     request.onupgradeneeded = () => {
       const db = request.result
 
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, {
-          keyPath: 'id',
-        })
+      if (
+        !db.objectStoreNames.contains(
+          PHOTO_STORE,
+        )
+      ) {
+        db.createObjectStore(
+          PHOTO_STORE,
+          {
+            keyPath: 'vehicleId',
+          },
+        )
       }
     }
 
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error)
+    request.onsuccess = () => {
+      resolve(request.result)
+    }
+
+    request.onerror = () => {
+      reject(request.error)
+    }
   })
+}
+
+async function getAllPhotos() {
+  const db = await openPhotoDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(
+      PHOTO_STORE,
+      'readonly',
+    )
+
+    const store =
+      transaction.objectStore(
+        PHOTO_STORE,
+      )
+
+    const request = store.getAll()
+
+    request.onsuccess = () => {
+      resolve(request.result || [])
+    }
+
+    request.onerror = () => {
+      reject(request.error)
+    }
+  })
+}
+
+async function savePhoto(
+  vehicleId,
+  photo,
+) {
+  const db = await openPhotoDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(
+      PHOTO_STORE,
+      'readwrite',
+    )
+
+    const store =
+      transaction.objectStore(
+        PHOTO_STORE,
+      )
+
+    if (photo) {
+      store.put({
+        vehicleId,
+        photo,
+      })
+    } else {
+      store.delete(vehicleId)
+    }
+
+    transaction.oncomplete = () => {
+      resolve()
+    }
+
+    transaction.onerror = () => {
+      reject(transaction.error)
+    }
+  })
+}
+
+async function deletePhoto(vehicleId) {
+  const db = await openPhotoDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(
+      PHOTO_STORE,
+      'readwrite',
+    )
+
+    const store =
+      transaction.objectStore(
+        PHOTO_STORE,
+      )
+
+    store.delete(vehicleId)
+
+    transaction.oncomplete = () => {
+      resolve()
+    }
+
+    transaction.onerror = () => {
+      reject(transaction.error)
+    }
+  })
+}
+
+async function clearPhotos() {
+  const db = await openPhotoDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(
+      PHOTO_STORE,
+      'readwrite',
+    )
+
+    const store =
+      transaction.objectStore(
+        PHOTO_STORE,
+      )
+
+    store.clear()
+
+    transaction.oncomplete = () => {
+      resolve()
+    }
+
+    transaction.onerror = () => {
+      reject(transaction.error)
+    }
+  })
+}
+
+function mapVehicle(
+  row,
+  photo,
+) {
+  return {
+    id: row.id,
+
+    plate: row.plate,
+
+    model:
+      row.model || '',
+
+    color:
+      row.color || '',
+
+    entry:
+      row.entry,
+
+    exit:
+      row.exit,
+
+    createdBy:
+      row.created_by || null,
+
+    updatedBy:
+      row.updated_by || null,
+
+    createdAt:
+      row.created_at,
+
+    updatedAt:
+      row.updated_at,
+
+    photo:
+      photo || null,
+  }
 }
 
 export async function getVehicles() {
-  const db = await openDB()
+  const [
+    databaseResult,
+    localPhotos,
+  ] = await Promise.all([
+    neon
+      .from('vehicles')
+      .select('*')
+      .order(
+        'entry',
+        {
+          ascending: false,
+        },
+      ),
 
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction(STORE_NAME, 'readonly')
-    const request = transaction.objectStore(STORE_NAME).getAll()
+    getAllPhotos(),
+  ])
 
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error)
+  const {
+    data,
+    error,
+  } = databaseResult
+
+  if (error) {
+    console.error(
+      'Erro ao buscar veículos:',
+      error,
+    )
+
+    throw new Error(
+      error.message ||
+        'Não foi possível carregar os veículos.',
+    )
+  }
+
+  const photoMap = new Map(
+    localPhotos.map(item => [
+      item.vehicleId,
+      item.photo,
+    ]),
+  )
+
+  return (data || []).map(row => {
+    return mapVehicle(
+      row,
+      photoMap.get(row.id),
+    )
   })
 }
 
-export async function saveVehicle(vehicle) {
-  const db = await openDB()
+export async function saveVehicle(
+  vehicle,
+) {
+  const session =
+    await neon.auth.getSession()
 
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction(STORE_NAME, 'readwrite')
+  const userId =
+    session?.data?.user?.id ||
+    null
 
-    transaction.objectStore(STORE_NAME).put(vehicle)
+  const payload = {
+    id:
+      vehicle.id,
 
-    transaction.oncomplete = () => resolve()
-    transaction.onerror = () => reject(transaction.error)
-  })
+    plate:
+      vehicle.plate
+        .trim()
+        .toUpperCase(),
+
+    model:
+      vehicle.model
+        ?.trim()
+        .toUpperCase() ||
+      null,
+
+    color:
+      vehicle.color
+        ?.trim()
+        .toUpperCase() ||
+      null,
+
+    entry:
+      vehicle.entry,
+
+    exit:
+      vehicle.exit || null,
+
+    updated_by:
+      userId,
+
+    updated_at:
+      new Date().toISOString(),
+  }
+
+  const {
+    error,
+  } = await neon
+    .from('vehicles')
+    .upsert(
+      payload,
+      {
+        onConflict: 'id',
+      },
+    )
+
+  if (error) {
+    console.error(
+      'Erro ao salvar veículo:',
+      error,
+    )
+
+    throw new Error(
+      error.message ||
+        'Não foi possível salvar o veículo.',
+    )
+  }
+
+  await savePhoto(
+    vehicle.id,
+    vehicle.photo || null,
+  )
 }
 
-export async function deleteVehicle(id) {
-  const db = await openDB()
+export async function deleteVehicle(
+  id,
+) {
+  const {
+    error,
+  } = await neon
+    .from('vehicles')
+    .delete()
+    .eq(
+      'id',
+      id,
+    )
 
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction(STORE_NAME, 'readwrite')
+  if (error) {
+    console.error(
+      'Erro ao excluir veículo:',
+      error,
+    )
 
-    transaction.objectStore(STORE_NAME).delete(id)
+    throw new Error(
+      error.message ||
+        'Não foi possível excluir o veículo.',
+    )
+  }
 
-    transaction.oncomplete = () => resolve()
-    transaction.onerror = () => reject(transaction.error)
-  })
+  await deletePhoto(id)
 }
 
 export async function clearVehicles() {
-  const db = await openDB()
+  const {
+    data,
+    error,
+  } = await neon
+    .from('vehicles')
+    .select('id')
 
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction(STORE_NAME, 'readwrite')
+  if (error) {
+    console.error(
+      'Erro ao listar veículos:',
+      error,
+    )
 
-    transaction.objectStore(STORE_NAME).clear()
+    throw new Error(
+      error.message ||
+        'Não foi possível limpar os veículos.',
+    )
+  }
 
-    transaction.oncomplete = () => resolve()
-    transaction.onerror = () => reject(transaction.error)
-  })
+  const ids = (data || []).map(
+    item => item.id,
+  )
+
+  if (ids.length > 0) {
+    const {
+      error: deleteError,
+    } = await neon
+      .from('vehicles')
+      .delete()
+      .in(
+        'id',
+        ids,
+      )
+
+    if (deleteError) {
+      console.error(
+        'Erro ao limpar veículos:',
+        deleteError,
+      )
+
+      throw new Error(
+        deleteError.message ||
+          'Não foi possível limpar os veículos.',
+      )
+    }
+  }
+
+  await clearPhotos()
 }

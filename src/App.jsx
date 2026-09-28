@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import Login from './Login'
+import { neon } from './neon'
 import {
   clearVehicles,
   deleteVehicle,
@@ -80,6 +82,8 @@ function VehiclePhoto({
 }
 
 export default function App() {
+  const session = neon.auth.useSession()
+  const userId = session.data?.user?.id || null
   const [vehicles, setVehicles] = useState([])
   const [tab, setTab] = useState('dashboard')
 
@@ -131,8 +135,55 @@ export default function App() {
   }
 
   useEffect(() => {
-    loadVehicles()
-  }, [])
+    if (!userId) {
+      setVehicles([])
+      return
+    }
+
+    let active = true
+
+    async function syncVehicles() {
+      try {
+        const data = await getVehicles()
+
+        data.sort(
+          (a, b) =>
+            new Date(b.entry).getTime() -
+            new Date(a.entry).getTime(),
+        )
+
+        if (active) {
+          setVehicles(data)
+        }
+      } catch (error) {
+        console.error('Erro ao sincronizar veículos:', error)
+      }
+    }
+
+    syncVehicles()
+
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        syncVehicles()
+      }
+    }, 10000)
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        syncVehicles()
+      }
+    }
+
+    window.addEventListener('focus', syncVehicles)
+    document.addEventListener('visibilitychange', handleVisibility)
+
+    return () => {
+      active = false
+      clearInterval(interval)
+      window.removeEventListener('focus', syncVehicles)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
+  }, [userId])
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -723,7 +774,7 @@ export default function App() {
       }
 
       const confirmed = window.confirm(
-        'O backup será importado e substituirá os registros atuais. Continuar?',
+        'O backup será importado e substituirá TODOS os veículos compartilhados no Neon. Continuar?',
       )
 
       if (!confirmed) return
@@ -771,6 +822,20 @@ export default function App() {
       : calc.startedHour
   }
 
+  if (session.isPending) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-100 p-4">
+        <div className="rounded-2xl bg-white px-6 py-5 font-semibold shadow-sm">
+          Carregando...
+        </div>
+      </div>
+    )
+  }
+
+  if (!session.data) {
+    return <Login />
+  }
+
   return (
     <div className="min-h-screen bg-slate-100 pb-24 text-slate-900">
       <header className="sticky top-0 z-30 bg-slate-950 px-4 py-4 text-white shadow">
@@ -783,16 +848,30 @@ export default function App() {
             <p className="text-xs text-slate-400">
               {money(settings.rate)}/hora
             </p>
+
+            <p className="max-w-[190px] truncate text-[10px] text-slate-500">
+              {session.data?.user?.email}
+            </p>
           </div>
 
-          <button
-            onClick={() =>
-              setSettingsOpen(true)
-            }
-            className="rounded-xl bg-slate-800 px-4 py-2 text-sm font-bold"
-          >
-            Configurações
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSettingsOpen(true)}
+              className="rounded-xl bg-slate-800 px-3 py-2 text-xs font-bold"
+            >
+              Configurações
+            </button>
+
+            <button
+              onClick={async () => {
+                await neon.auth.signOut()
+                setVehicles([])
+              }}
+              className="rounded-xl bg-slate-800 px-3 py-2 text-xs font-bold"
+            >
+              Sair
+            </button>
+          </div>
         </div>
       </header>
 
