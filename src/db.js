@@ -47,12 +47,9 @@ async function getAllPhotos() {
       'readonly',
     )
 
-    const store =
-      transaction.objectStore(
-        PHOTO_STORE,
-      )
-
-    const request = store.getAll()
+    const request = transaction
+      .objectStore(PHOTO_STORE)
+      .getAll()
 
     request.onsuccess = () => {
       resolve(request.result || [])
@@ -109,12 +106,9 @@ async function deletePhoto(vehicleId) {
       'readwrite',
     )
 
-    const store =
-      transaction.objectStore(
-        PHOTO_STORE,
-      )
-
-    store.delete(vehicleId)
+    transaction
+      .objectStore(PHOTO_STORE)
+      .delete(vehicleId)
 
     transaction.oncomplete = () => {
       resolve()
@@ -135,12 +129,9 @@ async function clearPhotos() {
       'readwrite',
     )
 
-    const store =
-      transaction.objectStore(
-        PHOTO_STORE,
-      )
-
-    store.clear()
+    transaction
+      .objectStore(PHOTO_STORE)
+      .clear()
 
     transaction.oncomplete = () => {
       resolve()
@@ -152,14 +143,73 @@ async function clearPhotos() {
   })
 }
 
+async function getCurrentUser() {
+  const session =
+    await neon.auth.getSession()
+
+  return session?.data?.user || null
+}
+
+export async function ensureCurrentProfile() {
+  const user =
+    await getCurrentUser()
+
+  if (!user?.id) {
+    return null
+  }
+
+  const name =
+    user.name?.trim() ||
+    user.email
+      ?.split('@')[0]
+      ?.toUpperCase() ||
+    'USUÁRIO'
+
+  const {
+    data,
+    error,
+  } = await neon
+    .from('profiles')
+    .upsert(
+      {
+        id: user.id,
+        name,
+        updated_at:
+          new Date().toISOString(),
+      },
+      {
+        onConflict: 'id',
+      },
+    )
+    .select()
+    .single()
+
+  if (error) {
+    console.error(
+      'Erro ao salvar perfil:',
+      error,
+    )
+
+    throw new Error(
+      error.message ||
+        'Não foi possível salvar o perfil.',
+    )
+  }
+
+  return data
+}
+
 function mapVehicle(
   row,
   photo,
+  profiles,
 ) {
   return {
-    id: row.id,
+    id:
+      row.id,
 
-    plate: row.plate,
+    plate:
+      row.plate,
 
     model:
       row.model || '',
@@ -179,6 +229,24 @@ function mapVehicle(
     updatedBy:
       row.updated_by || null,
 
+    exitBy:
+      row.exit_by || null,
+
+    createdByName:
+      profiles.get(
+        row.created_by,
+      ) || null,
+
+    updatedByName:
+      profiles.get(
+        row.updated_by,
+      ) || null,
+
+    exitByName:
+      profiles.get(
+        row.exit_by,
+      ) || null,
+
     createdAt:
       row.created_at,
 
@@ -192,7 +260,8 @@ function mapVehicle(
 
 export async function getVehicles() {
   const [
-    databaseResult,
+    vehicleResult,
+    profileResult,
     localPhotos,
   ] = await Promise.all([
     neon
@@ -205,50 +274,89 @@ export async function getVehicles() {
         },
       ),
 
+    neon
+      .from('profiles')
+      .select('id,name'),
+
     getAllPhotos(),
   ])
 
-  const {
-    data,
-    error,
-  } = databaseResult
-
-  if (error) {
+  if (vehicleResult.error) {
     console.error(
       'Erro ao buscar veículos:',
-      error,
+      vehicleResult.error,
     )
 
     throw new Error(
-      error.message ||
+      vehicleResult.error.message ||
         'Não foi possível carregar os veículos.',
     )
   }
 
-  const photoMap = new Map(
-    localPhotos.map(item => [
-      item.vehicleId,
-      item.photo,
-    ]),
-  )
+  let profiles = []
 
-  return (data || []).map(row => {
-    return mapVehicle(
+  if (profileResult.error) {
+    console.error(
+      'Erro ao buscar perfis:',
+      profileResult.error,
+    )
+  } else {
+    profiles =
+      profileResult.data || []
+  }
+
+  const photoMap =
+    new Map(
+      localPhotos.map(item => [
+        item.vehicleId,
+        item.photo,
+      ]),
+    )
+
+  const profileMap =
+    new Map(
+      profiles.map(profile => [
+        profile.id,
+        profile.name,
+      ]),
+    )
+
+  return (
+    vehicleResult.data || []
+  ).map(row =>
+    mapVehicle(
       row,
       photoMap.get(row.id),
-    )
-  })
+      profileMap,
+    ),
+  )
 }
 
 export async function saveVehicle(
   vehicle,
 ) {
-  const session =
-    await neon.auth.getSession()
+  try {
+    await ensureCurrentProfile()
+  } catch (error) {
+    console.error(
+      'Não foi possível atualizar o perfil:',
+      error,
+    )
+  }
+
+  const user =
+    await getCurrentUser()
 
   const userId =
-    session?.data?.user?.id ||
-    null
+    user?.id || null
+
+  let exitBy = null
+
+  if (vehicle.exit) {
+    exitBy =
+      vehicle.exitBy ||
+      userId
+  }
 
   const payload = {
     id:
@@ -275,7 +383,11 @@ export async function saveVehicle(
       vehicle.entry,
 
     exit:
-      vehicle.exit || null,
+      vehicle.exit ||
+      null,
+
+    exit_by:
+      exitBy,
 
     updated_by:
       userId,
@@ -311,6 +423,116 @@ export async function saveVehicle(
     vehicle.id,
     vehicle.photo || null,
   )
+}
+
+export async function registerVehicleExit(
+  vehicle,
+  exitDate,
+) {
+  try {
+    await ensureCurrentProfile()
+  } catch (error) {
+    console.error(
+      'Não foi possível atualizar o perfil:',
+      error,
+    )
+  }
+
+  const user =
+    await getCurrentUser()
+
+  const userId =
+    user?.id || null
+
+  if (!userId) {
+    throw new Error(
+      'Usuário não autenticado.',
+    )
+  }
+
+  const exit =
+    exitDate instanceof Date
+      ? exitDate.toISOString()
+      : exitDate
+
+  const {
+    error,
+  } = await neon
+    .from('vehicles')
+    .update({
+      exit,
+      exit_by:
+        vehicle.exitBy ||
+        userId,
+      updated_by:
+        userId,
+      updated_at:
+        new Date().toISOString(),
+    })
+    .eq(
+      'id',
+      vehicle.id,
+    )
+
+  if (error) {
+    console.error(
+      'Erro ao registrar saída:',
+      error,
+    )
+
+    throw new Error(
+      error.message ||
+        'Não foi possível registrar a saída.',
+    )
+  }
+}
+
+export async function removeVehicleExit(
+  vehicle,
+) {
+  try {
+    await ensureCurrentProfile()
+  } catch (error) {
+    console.error(
+      'Não foi possível atualizar o perfil:',
+      error,
+    )
+  }
+
+  const user =
+    await getCurrentUser()
+
+  const userId =
+    user?.id || null
+
+  const {
+    error,
+  } = await neon
+    .from('vehicles')
+    .update({
+      exit: null,
+      exit_by: null,
+      updated_by:
+        userId,
+      updated_at:
+        new Date().toISOString(),
+    })
+    .eq(
+      'id',
+      vehicle.id,
+    )
+
+  if (error) {
+    console.error(
+      'Erro ao remover saída:',
+      error,
+    )
+
+    throw new Error(
+      error.message ||
+        'Não foi possível remover a saída.',
+    )
+  }
 }
 
 export async function deleteVehicle(
@@ -361,9 +583,10 @@ export async function clearVehicles() {
     )
   }
 
-  const ids = (data || []).map(
-    item => item.id,
-  )
+  const ids =
+    (data || []).map(
+      item => item.id,
+    )
 
   if (ids.length > 0) {
     const {

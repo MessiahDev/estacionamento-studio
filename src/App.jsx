@@ -4,7 +4,10 @@ import { neon } from './neon'
 import {
   clearVehicles,
   deleteVehicle,
+  ensureCurrentProfile,
   getVehicles,
+  registerVehicleExit,
+  removeVehicleExit,
   saveVehicle,
 } from './db'
 import {
@@ -133,6 +136,17 @@ export default function App() {
 
     setVehicles(data)
   }
+
+  useEffect(() => {
+    if (!userId) return
+
+    ensureCurrentProfile().catch(error => {
+      console.error(
+        'Erro ao criar perfil:',
+        error,
+      )
+    })
+  }, [userId])
 
   useEffect(() => {
     if (!userId) {
@@ -361,10 +375,10 @@ export default function App() {
       return
     }
 
-    await saveVehicle({
-      ...exitVehicle,
-      exit: exit.toISOString(),
-    })
+    await registerVehicleExit(
+      exitVehicle,
+      exit,
+    )
 
     setExitVehicle(null)
     setExitDateTime('')
@@ -377,10 +391,9 @@ export default function App() {
       return
     }
 
-    await saveVehicle({
-      ...vehicle,
-      exit: null,
-    })
+    await removeVehicleExit(
+      vehicle,
+    )
 
     await loadVehicles()
   }
@@ -619,7 +632,23 @@ export default function App() {
         `${formatTime(vehicle.entry)} → ${formatTime(vehicle.exit)} • ${calc.duration}`,
         `Proporcional: ${money(calc.proportional)}`,
         `Hora iniciada: ${money(calc.startedHour)}`,
-      ].join('\n')
+
+        vehicle.createdByName
+          ? `Entrada por: ${vehicle.createdByName}`
+          : null,
+
+        vehicle.exitByName
+          ? `Saída por: ${vehicle.exitByName}`
+          : null,
+
+        vehicle.updatedByName &&
+        vehicle.updatedBy !== vehicle.exitBy &&
+        vehicle.updatedBy !== vehicle.createdBy
+          ? `Última alteração: ${vehicle.updatedByName}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join('\n')
     })
 
     const title =
@@ -686,6 +715,9 @@ export default function App() {
         'Permanência',
         'Proporcional',
         'Hora iniciada',
+        'Entrada por',
+        'Saída por',
+        'Última alteração por',
       ],
     ]
 
@@ -704,14 +736,23 @@ export default function App() {
         formatTime(vehicle.entry),
         formatTime(vehicle.exit),
         calc.duration,
-        calc.proportional.toFixed(2),
-        calc.startedHour.toFixed(2),
+        calc.proportional
+          .toFixed(2)
+          .replace('.', ','),
+        calc.startedHour
+          .toFixed(2)
+          .replace('.', ','),
+        vehicle.createdByName || '',
+        vehicle.exitByName || '',
+        vehicle.updatedByName || '',
       ])
     })
 
     const csv = rows
       .map(row =>
-        row.map(escapeCsv).join(';'),
+        row
+          .map(escapeCsv)
+          .join(';'),
       )
       .join('\n')
 
@@ -997,6 +1038,36 @@ export default function App() {
                               ? ` • ${vehicle.color}`
                               : ''}
                           </span>
+                          <div className="mt-2 space-y-1 text-xs text-slate-400">
+                            {vehicle.createdByName && (
+                              <div>
+                                Entrada por:{' '}
+                                <strong className="text-slate-600">
+                                  {vehicle.createdByName}
+                                </strong>
+                              </div>
+                            )}
+
+                            {vehicle.exitByName && (
+                              <div>
+                                Saída por:{' '}
+                                <strong className="text-slate-600">
+                                  {vehicle.exitByName}
+                                </strong>
+                              </div>
+                            )}
+
+                            {vehicle.updatedByName &&
+                              vehicle.updatedBy !== vehicle.createdBy &&
+                              vehicle.updatedBy !== vehicle.exitBy && (
+                                <div>
+                                  Última alteração:{' '}
+                                  <strong className="text-slate-600">
+                                    {vehicle.updatedByName}
+                                  </strong>
+                                </div>
+                              )}
+                          </div>
                         </div>
 
                         <strong className="text-green-600">
@@ -1233,6 +1304,36 @@ export default function App() {
                               ? ` • ${vehicle.color}`
                               : ''}
                           </span>
+                          <div className="mt-2 space-y-1 text-xs text-slate-400">
+                            {vehicle.createdByName && (
+                              <div>
+                                Entrada por:{' '}
+                                <strong className="text-slate-600">
+                                  {vehicle.createdByName}
+                                </strong>
+                              </div>
+                            )}
+
+                            {vehicle.exitByName && (
+                              <div>
+                                Saída por:{' '}
+                                <strong className="text-slate-600">
+                                  {vehicle.exitByName}
+                                </strong>
+                              </div>
+                            )}
+
+                            {vehicle.updatedByName &&
+                              vehicle.updatedBy !== vehicle.createdBy &&
+                              vehicle.updatedBy !== vehicle.exitBy && (
+                                <div>
+                                  Última alteração:{' '}
+                                  <strong className="text-slate-600">
+                                    {vehicle.updatedByName}
+                                  </strong>
+                                </div>
+                              )}
+                          </div>
                         </div>
 
                         <span
