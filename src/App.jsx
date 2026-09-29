@@ -891,7 +891,7 @@ export default function App() {
             </p>
 
             <p className="max-w-[190px] truncate text-[10px] text-slate-500">
-              {session.data?.user?.email}
+              {session.data?.user?.name}
             </p>
           </div>
 
