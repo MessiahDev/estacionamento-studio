@@ -890,7 +890,7 @@ export default function App() {
               {money(settings.rate)}/hora
             </p>
 
-            <p className="max-w-[190px] truncate text-[10px] text-slate-500">
+            <p className="max-w-[190px] truncate text-[12   px] text-slate-500">
               {session.data?.user?.name}
             </p>
           </div>
